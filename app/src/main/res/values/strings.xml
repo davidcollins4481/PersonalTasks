@@ -1,0 +1,26 @@
+<resources>
+    <string name="app_name">Personal Tasks</string>
+
+    <string name="navigation_drawer_open">Open navigation drawer</string>
+    <string name="navigation_drawer_close">Close navigation drawer</string>
+
+    <string name="action_settings">Settings</string>
+    <string name="title_activity_bill_sheet">BillSheetActivity</string>
+
+    <string name="found">have i been found</string>
+
+    <string-array name="bill_months">
+        <item value="1">January</item>
+        <item value="2">February</item>
+        <item value="3">March</item>
+        <item value="4">April</item>
+        <item value="5">May</item>
+        <item value="6">June</item>
+        <item value="7">July</item>
+        <item value="8">August</item>
+        <item value="9">September</item>
+        <item value="10">October</item>
+        <item value="11">November</item>
+        <item value="12">December</item>
+    </string-array>
+</resources>
