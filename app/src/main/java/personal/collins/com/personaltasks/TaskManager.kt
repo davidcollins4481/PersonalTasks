@@ -4,12 +4,12 @@ import android.content.Context
 import android.content.Intent
 
 class TaskManager constructor(val context: Context) {
-    fun launch(task: Task) {
+    fun launch(task: PersonalTask) {
         context.startActivity(task.intent)
     }
 }
 
-class Task constructor(var name: String, val intent: Intent) {
+class PersonalTask constructor(var name: String, val intent: Intent) {
     override fun toString(): String {
         return this.name
     }

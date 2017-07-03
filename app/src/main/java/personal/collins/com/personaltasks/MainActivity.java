@@ -40,13 +40,13 @@ public class MainActivity extends AppCompatActivity
 
         ListView taskList = (ListView) findViewById(R.id.taskView);
 
-        final ArrayList<Task> tasks = new ArrayList<>();
+        final ArrayList<PersonalTask> tasks = new ArrayList<>();
 
         tasks.add(
-            new Task("Generate Bill Checklist", new Intent(getApplicationContext(), BillSheetActivity.class))
+            new PersonalTask("Generate Bill Checklist", new Intent(getApplicationContext(), BillSheetActivity.class))
         );
 
-        ArrayAdapter<Task> adapter = new ArrayAdapter<Task>(
+        ArrayAdapter<PersonalTask> adapter = new ArrayAdapter<PersonalTask>(
                 getApplicationContext(),
                 android.R.layout.simple_list_item_1,
                 tasks
@@ -59,7 +59,7 @@ public class MainActivity extends AppCompatActivity
         taskList.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
-                Task selected = tasks.get(i);
+                PersonalTask selected = tasks.get(i);
                 manager.launch(selected);
             }
         });

@@ -14,6 +14,7 @@ import com.google.api.client.util.DateTime;
 import com.google.api.client.util.ExponentialBackOff;
 
 import com.google.api.services.tasks.TasksScopes;
+
 import com.google.api.services.tasks.model.*;
 import com.google.api.services.calendar.CalendarScopes;
 import com.google.api.services.calendar.model.*;
@@ -50,8 +51,10 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
@@ -148,11 +151,9 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
         mOutputText.setPadding(16, 16, 16, 16);
         mOutputText.setVerticalScrollBarEnabled(true);
         mOutputText.setMovementMethod(new ScrollingMovementMethod());
-        mOutputText.setText(
-                "Click the \'" + BUTTON_TEXT +"\' button to test the API.");
 
         mProgress = new ProgressDialog(this);
-        mProgress.setMessage("Calling Google Tasks API ...");
+        mProgress.setMessage("Getting Calendar events ...");
 
         mCredential = GoogleAccountCredential.usingOAuth2(
                 getApplicationContext(), Arrays.asList(SCOPES))
@@ -190,7 +191,7 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
         } else if (! isDeviceOnline()) {
             mOutputText.setText("No network connection available.");
         } else {
-            new MakeRequestTask(mCredential).execute();
+            new CalendarRequestTask(mCredential).execute();
         }
     }
 
@@ -375,15 +376,15 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
     }
 
     /**
-     * An asynchronous task that handles the Google Tasks API call.
+     * An asynchronous task that handles the Google Calendar API call.
      * Placing the API calls in their own task ensures the UI stays responsive.
      */
-    private class MakeRequestTask extends AsyncTask<Void, Void, List<String>> {
+    private class CalendarRequestTask extends AsyncTask<Void, Void, List<Event>> {
         private com.google.api.services.tasks.Tasks mService = null;
         private com.google.api.services.calendar.Calendar cService = null;
         private Exception mLastError = null;
 
-        MakeRequestTask(GoogleAccountCredential credential) {
+        CalendarRequestTask(GoogleAccountCredential credential) {
             HttpTransport transport = AndroidHttp.newCompatibleTransport();
             JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
             mService = new com.google.api.services.tasks.Tasks.Builder(
@@ -402,9 +403,10 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
          * @param params no parameters needed for this task.
          */
         @Override
-        protected List<String> doInBackground(Void... params) {
+        protected List<Event> doInBackground(Void... params) {
             try {
-                return getDataFromApi();
+                List<Event> bills = getBillsFromCalendar();
+                return bills;
             } catch (Exception e) {
                 mLastError = e;
                 cancel(true);
@@ -418,7 +420,7 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
          *         there are no task lists found.
          * @throws IOException
          */
-        private List<String> getDataFromApi() throws IOException {
+        private List<Event> getBillsFromCalendar() throws IOException {
             // List the next 10 events from the primary calendar.
             DateTime now = new DateTime(System.currentTimeMillis());
             List<String> eventStrings = new ArrayList<String>();
@@ -431,33 +433,8 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
                     .execute();
 
             List<Event> items = events.getItems();
-
-            for (Event event : items) {
-                DateTime start = event.getStart().getDateTime();
-                if (start == null) {
-                    // All-day events don't have start times, so just use
-                    // the start date.
-                    start = event.getStart().getDate();
-                }
-                eventStrings.add(
-                        String.format("%s (%s)", event.getSummary(), start));
-            }
-            return eventStrings;
-
-            // List up to 10 task lists.
-//            List<String> taskListInfo = new ArrayList<String>();
-//            TaskLists result = mService.tasklists().list()
-//                    .setMaxResults(Long.valueOf(10))
-//                    .execute();
-//            List<TaskList> tasklists = result.getItems();
-//            if (tasklists != null) {
-//                for (TaskList tasklist : tasklists) {
-//                    taskListInfo.add(String.format("%s (%s)\n",
-//                            tasklist.getTitle(),
-//                            tasklist.getId()));
-//                }
-//            }
-//            return taskListInfo;
+            Collections.reverse(items);
+            return items;
         }
 
 
@@ -468,13 +445,13 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
         }
 
         @Override
-        protected void onPostExecute(List<String> output) {
-            mProgress.hide();
+        protected void onPostExecute(List<Event> output) {
+            mProgress.setMessage("Creating tasks from events");
             if (output == null || output.size() == 0) {
                 mOutputText.setText("No results returned.");
             } else {
-                output.add(0, "Data retrieved using the Google Tasks API:");
-                mOutputText.setText(TextUtils.join("\n", output));
+                new TaskRequestTask(mCredential, output)
+                        .execute();
             }
         }
 
@@ -500,4 +477,99 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
         }
     }
 
+
+    /**
+     * An asynchronous task that handles the Google Calendar API call.
+     * Placing the API calls in their own task ensures the UI stays responsive.
+     */
+    private class TaskRequestTask extends AsyncTask<Void, Void, String> {
+        private com.google.api.services.tasks.Tasks mService = null;
+        private Exception mLastError = null;
+        private List<Event> bills;
+
+        TaskRequestTask(GoogleAccountCredential credential, List<Event> events) {
+            this.bills = events;
+            HttpTransport transport = AndroidHttp.newCompatibleTransport();
+            JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
+            mService = new com.google.api.services.tasks.Tasks.Builder(
+                    transport, jsonFactory, credential)
+                    .setApplicationName("Google Tasks API Android Quickstart")
+                    .build();
+        }
+
+        /**
+         * Background task to call Google Tasks API.
+         * @param params no parameters needed for this task.
+         */
+        @Override
+        protected String doInBackground(Void... params) {
+            try {
+                String tasksCreated = writeTasks();
+                return tasksCreated;
+            } catch (Exception e) {
+                mLastError = e;
+                cancel(true);
+                return null;
+            }
+        }
+
+        /**
+         * Fetch a list of the first 10 task lists.
+         * @return List of Strings describing task lists, or an empty list if
+         *         there are no task lists found.
+         * @throws IOException
+         */
+        private String writeTasks() throws IOException {
+            TaskList taskList = new TaskList();
+            Calendar cal = Calendar.getInstance();
+            cal.setTime(startDate);
+
+            String month = cal.getDisplayName(Calendar.MONTH, Calendar.LONG, Locale.getDefault());
+
+            taskList.setTitle(String.format("Bills for %s", month));
+            TaskList result = mService.tasklists().insert(taskList).execute();
+
+            for (Event e : this.bills) {
+                String title = String.format("%s (%s)", e.getSummary(), e.getStart().getDate().toString());
+                Task task = new com.google.api.services.tasks.model.Task();
+                task.setTitle(title);
+                mService.tasks().insert(result.getId(), task).execute();
+            }
+
+            return "Task list created";
+        }
+
+
+        @Override
+        protected void onPreExecute() {
+            mOutputText.setText("");
+        }
+
+        @Override
+        protected void onPostExecute(String output) {
+            mProgress.hide();
+            mOutputText.setText(output);
+        }
+
+        @Override
+        protected void onCancelled() {
+            mProgress.hide();
+            if (mLastError != null) {
+                if (mLastError instanceof GooglePlayServicesAvailabilityIOException) {
+                    showGooglePlayServicesAvailabilityErrorDialog(
+                            ((GooglePlayServicesAvailabilityIOException) mLastError)
+                                    .getConnectionStatusCode());
+                } else if (mLastError instanceof UserRecoverableAuthIOException) {
+                    startActivityForResult(
+                            ((UserRecoverableAuthIOException) mLastError).getIntent(),
+                            BillSheetActivity.REQUEST_AUTHORIZATION);
+                } else {
+                    mOutputText.setText("The following error occurred:\n"
+                            + mLastError.getMessage());
+                }
+            } else {
+                mOutputText.setText("Request cancelled.");
+            }
+        }
+    }
 }
