@@ -434,7 +434,7 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
 //                    handleSignInResult(googleSignInResult);
 //                }
 //            });
-        }
+//        }
     }
 
     /**
