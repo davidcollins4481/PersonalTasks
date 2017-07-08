@@ -1,7 +1,11 @@
 package personal.collins.com.personaltasks;
 
+import com.google.android.gms.auth.api.Auth;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.auth.api.signin.GoogleSignInResult;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.gms.common.api.OptionalPendingResult;
 import com.google.api.client.extensions.android.http.AndroidHttp;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GooglePlayServicesAvailabilityIOException;
@@ -28,26 +32,22 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
-import android.text.TextUtils;
 import android.text.method.ScrollingMovementMethod;
+import android.util.Log;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.io.IOException;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -65,9 +65,9 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
     private Date startDate;
     private Date endDate;
 
-
     private String CALENDAR_ID = "grm70h5srpq90vp7v6upsaoce4@group.calendar.google.com";
 
+    private static final String TAG = MainActivity.class.getSimpleName();
     GoogleAccountCredential mCredential;
     private TextView mOutputText;
     ProgressDialog mProgress;
@@ -77,7 +77,6 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
     static final int REQUEST_GOOGLE_PLAY_SERVICES = 1002;
     static final int REQUEST_PERMISSION_GET_ACCOUNTS = 1003;
 
-    private static final String BUTTON_TEXT = "Call Google Tasks API";
     private static final String PREF_ACCOUNT_NAME = "accountName";
     private static final String[] SCOPES = { TasksScopes.TASKS, CalendarScopes.CALENDAR_READONLY };
 
@@ -93,6 +92,7 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
         Spinner months = (Spinner) findViewById(R.id.monthSpinner);
         Spinner years = (Spinner) findViewById(R.id.yearSpinner);
         final Button generate = (Button) findViewById(R.id.generateButton);
+        final Button viewBills = (Button) findViewById(R.id.viewBills);
 
         months.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
@@ -137,14 +137,50 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
         generate.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                //Toast.makeText(BillSheetActivity.this, String.format("Month: %3d, Year: %03d", selectedMonth, selectedYear), Toast.LENGTH_SHORT).show();
                 startDate = getDate(selectedMonth, selectedYear);
                 endDate = getLastDayOfMonth(selectedMonth, selectedYear);
-
                 generate.setEnabled(false);
                 mOutputText.setText("");
-                getResultsFromApi();
+
+                CallableAction toTaskListAction = new CallableAction() {
+                    @Override
+                    @SuppressWarnings("unchecked")
+                    public boolean run(List<Object> events) {
+                        List<Event> e = (List<Event>)(Object)events;
+                        new TaskRequestTask(mCredential, e)
+                                .execute();
+                        return true;
+                    }
+                };
+
+                new CalendarRequestTask(mCredential, toTaskListAction).execute();
                 generate.setEnabled(true);
+            }
+        });
+
+        viewBills.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startDate = getDate(selectedMonth, selectedYear);
+                endDate = getLastDayOfMonth(selectedMonth, selectedYear);
+                viewBills.setEnabled(false);
+                mOutputText.setText("");
+
+                CallableAction toTaskListAction = new CallableAction() {
+                    @Override
+                    @SuppressWarnings("unchecked")
+                    public boolean run(List<Object> events) {
+                        mProgress.hide();
+                        List<Event> bills = (List<Event>)(Object)events;
+                        for (Event e : bills) {
+                            String title = String.format("%s (%s)\n", e.getSummary(), e.getStart().getDate().toString());
+                            mOutputText.append(title);
+                        }
+                        return true;
+                    }
+                };
+
+                new CalendarRequestTask(mCredential, toTaskListAction).execute();
             }
         });
 
@@ -158,6 +194,8 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
         mCredential = GoogleAccountCredential.usingOAuth2(
                 getApplicationContext(), Arrays.asList(SCOPES))
                 .setBackOff(new ExponentialBackOff());
+
+        setupApiAccess();
     }
 
     private Date getDate(int month, int year) {
@@ -176,22 +214,13 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
         return calendar.getTime();
     }
 
-    /**
-     * Attempt to call the API, after verifying that all the preconditions are
-     * satisfied. The preconditions are: Google Play Services installed, an
-     * account was selected and the device currently has online access. If any
-     * of the preconditions are not satisfied, the app will prompt the user as
-     * appropriate.
-     */
-    private void getResultsFromApi() {
-        if (! isGooglePlayServicesAvailable()) {
+    private void setupApiAccess() {
+        if (!isGooglePlayServicesAvailable()) {
             acquireGooglePlayServices();
         } else if (mCredential.getSelectedAccountName() == null) {
             chooseAccount();
-        } else if (! isDeviceOnline()) {
+        } else if (!isDeviceOnline()) {
             mOutputText.setText("No network connection available.");
-        } else {
-            new CalendarRequestTask(mCredential).execute();
         }
     }
 
@@ -214,7 +243,6 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
 
             if (accountName != null) {
                 mCredential.setSelectedAccountName(accountName);
-                getResultsFromApi();
             } else {
                 // Start a dialog from which the user can choose an account
                 startActivityForResult(
@@ -252,7 +280,7 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
                             "This app requires Google Play Services. Please install " +
                                     "Google Play Services on your device and relaunch this app.");
                 } else {
-                    getResultsFromApi();
+
                 }
                 break;
             case REQUEST_ACCOUNT_PICKER:
@@ -267,13 +295,21 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
                         editor.putString(PREF_ACCOUNT_NAME, accountName);
                         editor.apply();
                         mCredential.setSelectedAccountName(accountName);
-                        getResultsFromApi();
                     }
                 }
                 break;
             case REQUEST_AUTHORIZATION:
                 if (resultCode == RESULT_OK) {
-                    getResultsFromApi();
+                    // nothing right now
+
+//                    GoogleSignInResult result = Auth.GoogleSignInApi.getSignInResultFromIntent(data);
+//                    GoogleSignInAccount acct = result.getSignInAccount();
+//                    String personName = acct.getDisplayName();
+//                    String personGivenName = acct.getGivenName();
+//                    String personFamilyName = acct.getFamilyName();
+//                    String personEmail = acct.getEmail();
+//                    String personId = acct.getId();
+//                    Uri personPhoto = acct.getPhotoUrl();
                 }
                 break;
         }
@@ -375,27 +411,50 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
         dialog.show();
     }
 
+    @Override
+    public void onStart() {
+        super.onStart();
+
+//        OptionalPendingResult<GoogleSignInResult> opr = Auth.GoogleSignInApi.silentSignIn(mGoogleApiClient);
+//        if (opr.isDone()) {
+//            // If the user's cached credentials are valid, the OptionalPendingResult will be "done"
+//            // and the GoogleSignInResult will be available instantly.
+//            Log.d(TAG, "Got cached sign-in");
+//            GoogleSignInResult result = opr.get();
+//            //handleSignInResult(result);
+//        } else {
+            // If the user has not previously signed in on this device or the sign-in has expired,
+            // this asynchronous branch will attempt to sign in the user silently.  Cross-device
+            // single sign-on will occur in this branch.
+            //showProgressDialog();
+//            opr.setResultCallback(new ResultCallback<GoogleSignInResult>() {
+//                @Override
+//                public void onResult(GoogleSignInResult googleSignInResult) {
+//                    hideProgressDialog();
+//                    handleSignInResult(googleSignInResult);
+//                }
+//            });
+        }
+    }
+
     /**
      * An asynchronous task that handles the Google Calendar API call.
      * Placing the API calls in their own task ensures the UI stays responsive.
      */
     private class CalendarRequestTask extends AsyncTask<Void, Void, List<Event>> {
-        private com.google.api.services.tasks.Tasks mService = null;
         private com.google.api.services.calendar.Calendar cService = null;
         private Exception mLastError = null;
+        private CallableAction action = null;
 
-        CalendarRequestTask(GoogleAccountCredential credential) {
+        CalendarRequestTask(GoogleAccountCredential credential, CallableAction action) {
             HttpTransport transport = AndroidHttp.newCompatibleTransport();
             JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
-            mService = new com.google.api.services.tasks.Tasks.Builder(
-                    transport, jsonFactory, credential)
-                    .setApplicationName("Google Tasks API Android Quickstart")
-                    .build();
-
             cService = new com.google.api.services.calendar.Calendar.Builder(
                     transport, jsonFactory, credential)
                     .setApplicationName("Google calendar stuff")
                     .build();
+
+            this.action = action;
         }
 
         /**
@@ -421,10 +480,6 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
          * @throws IOException
          */
         private List<Event> getBillsFromCalendar() throws IOException {
-            // List the next 10 events from the primary calendar.
-            DateTime now = new DateTime(System.currentTimeMillis());
-            List<String> eventStrings = new ArrayList<String>();
-
             Events events = cService.events().list(CALENDAR_ID)
                     .setTimeMin(new DateTime(startDate))
                     .setTimeMax(new DateTime(endDate))
@@ -445,13 +500,12 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
         }
 
         @Override
+        @SuppressWarnings("unchecked")
         protected void onPostExecute(List<Event> output) {
-            mProgress.setMessage("Creating tasks from events");
             if (output == null || output.size() == 0) {
                 mOutputText.setText("No results returned.");
             } else {
-                new TaskRequestTask(mCredential, output)
-                        .execute();
+                action.run((List<Object>) (Object) output);
             }
         }
 
@@ -538,7 +592,6 @@ public class BillSheetActivity extends AppCompatActivity implements EasyPermissi
 
             return "Task list created";
         }
-
 
         @Override
         protected void onPreExecute() {

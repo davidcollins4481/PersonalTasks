@@ -1,5 +1,7 @@
 package personal.collins.com.personaltasks;
 
+import android.accounts.Account;
+import android.accounts.AccountManager;
 import android.content.Intent;
 import android.os.Bundle;
 import android.support.design.widget.FloatingActionButton;
@@ -63,6 +65,20 @@ public class MainActivity extends AppCompatActivity
                 manager.launch(selected);
             }
         });
+
+        //
+        AccountManager am = (AccountManager) getSystemService(ACCOUNT_SERVICE);
+        Account[] list = am.getAccounts();
+        String gmail = null;
+
+        for(Account account: list)
+        {
+            if(account.type.equalsIgnoreCase("com.google"))
+            {
+                gmail = account.name;
+                break;
+            }
+        }
 
     }
 
