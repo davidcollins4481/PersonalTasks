@@ -158,10 +158,14 @@ public class BillSheetActivity extends AppCompatActivity {
                     public boolean run(List<Object> events) {
                         mProgress.hide();
                         List<Event> bills = (List<Event>)(Object)events;
+                        Collections.reverse(bills);
+
                         for (Event e : bills) {
                             String title = String.format("%s (%s)\n", e.getSummary(), e.getStart().getDate().toString());
                             mOutputText.append(title);
                         }
+
+                        viewBills.setEnabled(true);
                         return true;
                     }
                 };

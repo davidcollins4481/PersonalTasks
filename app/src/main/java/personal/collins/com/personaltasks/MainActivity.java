@@ -103,8 +103,6 @@ public class MainActivity extends AppCompatActivity
                 .withToolbar (toolbar)
                 .build ();
 
-;
-
         ListView taskList = (ListView) findViewById(R.id.taskView);
 
         final ArrayList<PersonalTask> tasks = new ArrayList<>();
